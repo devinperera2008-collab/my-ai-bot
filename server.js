@@ -3,24 +3,30 @@ const fetch = require('node-fetch');
 const cors = require('cors');
 const app = express();
 
-app.use(express.json());
+// allow the website to talk to this server
 app.use(cors());
+app.use(express.json());
 
-const API_KEY = process.env.GEMINI_KEY; 
+const API_KEY = process.env.GEMINI_KEY;
 
 app.post('/cortex', async (req, res) => {
-    // 1. Check if Key exists on Server
+    // 1. Safety Check: Is the key there?
     if (!API_KEY) {
-        console.error("ERROR: GEMINI_KEY is missing in Render Environment Variables.");
-        return res.status(500).json({ error: { message: "Server Error: API Key is missing." } });
+        console.error("CRITICAL ERROR: GEMINI_KEY is missing in Render Environment.");
+        return res.status(500).json({ error: "Server Configuration Error: API Key missing." });
     }
 
-    try {
-        const userMessage = req.body.message;
-        
-        // 2. Print what we are sending (for logs)
-        console.log("Sending to Google:", userMessage);
+    // 2. Safety Check: Did the website send a message?
+    const userMessage = req.body.message;
+    if (!userMessage) {
+        console.error("ERROR: No message received from website.");
+        return res.status(400).json({ error: "Bad Request: No message provided." });
+    }
 
+    console.log("Received message from website. Sending to Gemini...");
+
+    try {
+        // 3. Send to Google
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -31,17 +37,23 @@ app.post('/cortex', async (req, res) => {
 
         const data = await response.json();
 
-        // 3. If Google gives an error, pass it to the Website so we can see it
-        if (data.error) {
-            console.error("Google API Error:", data.error);
-            return res.status(400).json(data); // Send the Google error back
+        // 4. Detailed Error Handling (The Anti-400 Feature)
+        if (!response.ok) {
+            console.error("GOOGLE API ERROR:", JSON.stringify(data, null, 2));
+            // Send the exact reason back to your website console
+            return res.status(400).json({ 
+                error: "Google API Error", 
+                details: data.error?.message || "Unknown error from Google" 
+            });
         }
 
+        // 5. Success
+        console.log("Gemini replied successfully.");
         res.json(data);
 
     } catch (error) {
-        console.error("Server Crash:", error);
-        res.status(500).json({ error: { message: "Internal Server Error" } });
+        console.error("SERVER CRASH:", error);
+        res.status(500).json({ error: "Internal Server Error" });
     }
 });
 
